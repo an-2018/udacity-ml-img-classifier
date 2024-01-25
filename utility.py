@@ -45,28 +45,40 @@ def load_data(data_dir):
 def build_model(arch, hidden_units):
     # Build model
     print("Building Model for {}...".format(arch))
-    
-    if arch == 'vgg16':
+    classifier = None
+
+    if arch == 'vgg':
         model = models.vgg16(pretrained=True)
-    elif arch == 'resnet50':
-        model = models.resnet50(pretrained=True)
+        freeze_parameters(model)
+        classifier = nn.Sequential(OrderedDict([
+            ('fc1', nn.Linear(25088, 4096)),
+            ('relu1', nn.ReLU()),
+            ('dropout1', nn.Dropout(p=0.5)),
+            ('fc2', nn.Linear(4096, 102)),
+            ('batch_norm', nn.BatchNorm1d(102)),
+            ('output', nn.LogSoftmax(dim=1))
+        ]))
+    elif arch == 'densenet':
+        model = models.densenet121(pretrained=True)
+        classifier = nn.Sequential(OrderedDict([
+            ('fc1', nn.Linear(1024, 500)),
+            ('relu1', nn.ReLU()),
+            ('dropout1', nn.Dropout(p=0.5)),
+            ('fc2', nn.Linear(500, 102)),
+            ('batch_norm', nn.BatchNorm1d(102)),
+            ('output', nn.LogSoftmax(dim=1))
+        ]))
     else:
-        print("choose a model for transfer learning: vgg16 or resnet50")
-
-    for param in model.parameters():
-        param.requires_grad = False
-
-    classifier = nn.Sequential(OrderedDict([
-        ('fc1', nn.Linear(25088, 4096)),
-        ('relu1', nn.ReLU()),
-        ('dropout1', nn.Dropout(p=0.5)),
-        ('fc2', nn.Linear(4096, 102)),
-        ('batch_norm', nn.BatchNorm1d(102)),
-        ('output', nn.LogSoftmax(dim=1))
-    ]))
+        print("choose a model for transfer learning: vgg16 or densenet121")
 
     model.classifier = classifier
     return model
+
+def freeze_parameters(model):
+    # Freeze parameters
+    print("Freezing parameters...")
+    for param in model.parameters():
+        param.requires_grad = False
 
 def train_model(model, train_loader, valid_loader, criterion, optimizer, epochs, device):
     # Train the model
@@ -113,35 +125,59 @@ def train_model(model, train_loader, valid_loader, criterion, optimizer, epochs,
 
 
 
-def save_checkpoint(model, save_dir, epochs, optimizer, train_data):
+def save_checkpoint(model, save_dir, epochs, optimizer, train_data, arch):
     # Save checkpoint
     print("Saving checkpoint at {}...".format(save_dir))
     
-    model.class_to_idx = train_data.class_to_idx
+    if arch == 'vgg':
+        model.class_to_idx = train_data.class_to_idx
 
-    checkpoint = {'input_size': 25088,
-                    'output_size': 102,
-                    'hidden_layers': [4096, 102],
-                    'state_dict': model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'class_to_idx': model.class_to_idx,
-                    'epochs': epochs}
+        checkpoint = {'input_size': 25088,
+                        'output_size': 102,
+                        'hidden_layers': [4096, 102],
+                        'state_dict': model.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'class_to_idx': model.class_to_idx,
+                        'epochs': epochs}
+
+    elif arch == 'densenet':
+        model.class_to_idx = train_data.class_to_idx
+
+        checkpoint = {'input_size': 1024,
+                        'output_size': 102,
+                        'hidden_layers': [500, 102],
+                        'state_dict': model.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'class_to_idx': model.class_to_idx,
+                        'epochs': epochs}
 
     torch.save(checkpoint, save_dir + '/checkpoint.pth')
 
-def load_checkpoint(filepath):
+def load_checkpoint(filepath, arch):
     # Load checkpoint
     print("Loading checkpoint from {}...".format(filepath))
     checkpoint = torch.load(filepath)
-    model = models.vgg16(pretrained=True)
-    model.classifier = nn.Sequential(OrderedDict([
-        ('fc1', nn.Linear(25088, 4096)),
-        ('relu1', nn.ReLU()),
-        ('dropout1', nn.Dropout(p=0.5)),
-        ('fc2', nn.Linear(4096, 102)),
-        ('batch_norm', nn.BatchNorm1d(102)),
-        ('output', nn.LogSoftmax(dim=1))
-    ]))
+
+    if arch == 'vgg':
+        model = models.vgg16(pretrained=True)
+        model.classifier = nn.Sequential(OrderedDict([
+            ('fc1', nn.Linear(25088, 4096)),
+            ('relu1', nn.ReLU()),
+            ('dropout1', nn.Dropout(p=0.5)),
+            ('fc2', nn.Linear(4096, 102)),
+            ('batch_norm', nn.BatchNorm1d(102)),
+            ('output', nn.LogSoftmax(dim=1))
+        ]))
+    elif arch == 'densenet':
+        model = models.densenet121(pretrained=True)
+        model.classifier = nn.Sequential(OrderedDict([
+            ('fc1', nn.Linear(1024, 500)),
+            ('relu1', nn.ReLU()),
+            ('dropout1', nn.Dropout(p=0.5)),
+            ('fc2', nn.Linear(500, 102)),
+            ('batch_norm', nn.BatchNorm1d(102)),
+            ('output', nn.LogSoftmax(dim=1))
+        ]))
     
     model.load_state_dict(checkpoint['state_dict'])
     model.class_to_idx = checkpoint['class_to_idx']
@@ -166,7 +202,6 @@ def process_image(image_path):
 def predict(image_path, model, topk, device):
     # Make predictions
     print("Predicting image at {}...".format(image_path))
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     
     model.eval()

@@ -11,10 +11,11 @@ def main():
     parser.add_argument('--category_names', dest='category_names', default='cat_to_name.json',
                         help='Path to a mapping of categories to real names')
     parser.add_argument('--gpu', action='store_true', default=False, help='Use GPU for inference')
+    parser.add_argument('--arch', dest='arch', default='vgg', help='Choose architecture (vgg16, densenet)')
 
     args = parser.parse_args()
 
-    model = load_checkpoint(args.checkpoint)
+    model = load_checkpoint(args.checkpoint, args.arch)
     
     device = 'cuda' if args.gpu and torch.cuda.is_available() else 'cpu'
     model.to(device)
@@ -22,15 +23,17 @@ def main():
     class_to_name = None
     if args.category_names:
         with open(args.category_names, 'r') as f:
-            class_to_name = json.load(f)
+            class_to_name = json.load(f, strict=False)
 
     probs, classes = predict(args.input, model, args.top_k, device)
 
     print("Predictions:")
-    for i in range(len(probs)):
-       
-        predict_class = str(classes[i].item())
-        print(f"Prediction {i + 1}: {class_to_name[predict_class]} with probability {probs[i].item():.3f}")
-    
+
+    for i, predicted_class in enumerate(classes[0]):
+        mapped_idx = predicted_class.item() + 1
+        mapped_class = class_to_name[str(mapped_idx)]
+        class_prob = probs[0][i].item()*100
+        print(f"Prediction {i + 1}: {mapped_class} ({mapped_idx}) with probability {class_prob:.3f}")
+
 if __name__ == "__main__":
     main()
